@@ -41,6 +41,6 @@ Use exact names and loop flags from `animation-library/sparky/manifest.json`. St
 
 Run `node scripts/check-library.mjs` to check all 60 current entries, export resources, imported modules and atlas textures. Earlier sprite-sheet and rig checks remain included.
 
-The app is static and uses relative paths, so it can be hosted at a repository subpath on GitHub Pages. Publish the repository root. `.nojekyll` is included. The latest assets are included by `.gitignore`; local authoring archives and private environment files remain excluded. A destination repository has not yet been selected for this revision.
+The app is static and uses relative paths, so it can be hosted at a repository subpath on GitHub Pages. Publish the repository root. `.nojekyll` is included. The latest assets are included by `.gitignore`; local authoring archives and private environment files remain excluded. Repository: [Roky777/sparky-animaition-library](https://github.com/Roky777/sparky-animaition-library).
 
 See [current character integration notes](animation-library/sparky/README.md) for details.
