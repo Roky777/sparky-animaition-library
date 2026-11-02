@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sprite Animation Library</title>
+<link rel="stylesheet" href="library.css">
+<link rel="stylesheet" href="animator.css">
+<main>
+  <header><div><a class="back-link" href="index.html">← Animation library</a><p class="eyebrow orange">SPARKY / MOTION WORKSPACE</p><h1>Animation studio<span>.</span></h1><p class="muted">Inspect every move. Fine-tune your game integration.</p></div><a class="outline" href="index.html">Browse & export ↗</a></header>
+  <div class="layout">
+    <section><div class="stage" id="stage"><figure class="preview-view"><canvas id="character" aria-label="Animation preview"></canvas><figcaption id="primary-name"></figcaption></figure><figure class="preview-view" id="comparison-view" hidden><canvas id="comparison" aria-label="Comparison animation preview"></canvas><figcaption id="comparison-name"></figcaption></figure></div><div class="stage-tools"><label>Background <select id="studio-background"><option value="dark">Studio</option><option value="checker">Transparency</option><option value="light">Light</option><option value="green">Green screen</option></select></label><label>Zoom <select id="studio-zoom"><option value="1">Fit</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option></select></label><button class="outline" id="fullscreen">⛶ Fullscreen</button></div><p id="description"></p><p id="status" role="status">Loading library…</p></section>
+    <aside><p class="eyebrow orange">PLAYBACK</p>
+      <label for="animation">Animation</label><select id="animation"></select>
+      <label><input id="compare" type="checkbox"> Compare at the same scale</label>
+      <label for="comparison-animation">Compare with</label><select id="comparison-animation" style="width:100%;margin-bottom:16px" disabled></select>
+      <p style="font-size:12px">Common 512 × 640 canvas; root (256, 592). Standing reference height: 400 px. Seated, crouched and airborne poses retain their intended height.</p>
+      <div><button id="play" disabled>Play</button><button id="pause" disabled>Pause</button><button id="restart" disabled>Restart</button></div>
+      <label for="speed">Playback speed</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+      <p id="info"></p>
+      <p id="review" style="font-size:12px"></p>
+      <label for="frame">Inspect frame <span id="frame-label">1</span></label>
+      <input id="frame" type="range" min="0" max="0" value="0" step="1" style="width:100%" disabled>
+      <div><button id="previous" disabled>Previous frame</button><button id="next" disabled>Next frame</button></div>
+      <div class="studio-section"><p class="eyebrow">INSPECTION TOOLS</p><label class="toggle"><input id="studio-repeat" type="checkbox"> Repeat one-shots in preview</label><label class="toggle"><input id="onion" type="checkbox"> Onion skin <small>Pause to inspect</small></label><label class="toggle"><input id="guides" type="checkbox"> Root & ground guides</label><label class="toggle"><input id="studio-breath" type="checkbox" checked> Runtime breathing</label><div class="utility-actions"><button class="outline" id="frame-png">↓ Current frame PNG</button><button class="outline" id="copy-code">Copy integration code</button></div><p class="shortcut-hint">Space play / pause · ← → step<br>R restart · O onion skin · G guides</p></div><div class="links"><a id="guide">Animation guide (.md)</a><a id="sheet">Sprite sheet</a><a id="metadata">Playback JSON</a></div>
+    </aside>
+  </div><section class="timeline-panel"><div class="timeline-heading"><h2>Frame timeline</h2><span id="timeline-summary">Select a frame to inspect</span></div><div id="frame-thumbnails" aria-label="Frame timeline"></div></section>
+</main>
+<script type="module">
+  import { SpriteSheetPlayer } from "./player.js?v=breathing-v1";
+  const $ = id => document.getElementById(id);
+  let player, comparisonPlayer, entries = [], request = 0, comparisonRequest = 0;
+  const eachPlayer = action => { if (player) action(player); if (comparisonPlayer) action(comparisonPlayer); };
+  async function selectComparison() {
+    const token = ++comparisonRequest;
+    comparisonPlayer?.destroy(); comparisonPlayer = null;
+    const enabled = $("compare").checked;
+    $("comparison-animation").disabled = !enabled;
+    $("comparison-view").hidden = !enabled;
+    $("stage").classList.toggle("compare", enabled);
+    if (!enabled) return;
+    const entry = entries.find(e => e.id === $("comparison-animation").value);
+    try {
+      const surface = document.createElement("canvas");
+      surface.id = "comparison"; surface.setAttribute("aria-label", "Comparison animation preview");
+      const next = await SpriteSheetPlayer.load(surface, entry.metadata, {speed:Number($("speed").value)});
+      if (token !== comparisonRequest) { next.destroy(); return; }
+      $("comparison").replaceWith(surface); comparisonPlayer = next;
+      $("comparison-name").textContent = entry.name;
+      if (player?.playing) next.play();
+    } catch(error) { if (token === comparisonRequest) $("status").textContent = `Comparison: ${error.message}`; }
+  }
+  const buttons = [$("play"), $("pause"), $("restart"), $("previous"), $("next"), $("frame")];
+  function inspect(index) {
+    if (!player) return;
+    player.seekFrame(index);
+    if (comparisonPlayer) comparisonPlayer.seekFrame(Math.min(comparisonPlayer.data.frameCount-1,Math.round(index/(player.data.frameCount-1||1)*(comparisonPlayer.data.frameCount-1))));
+    $("frame").value = index;
+    $("frame-label").textContent = `${index + 1} / ${player.data.frameCount}`;
+    studioOverlay();
+    $("status").textContent = `Paused on frame ${index + 1}. Use Previous/Next to inspect the head and neck, or Play to resume.`;
+  }
+  async function select() {
+    const token = ++request;
+    player?.destroy(); player = null;
+    buttons.forEach(button => button.disabled = true);
+    $("status").textContent = "Loading animation…";
+    const entry = entries.find(item => item.id === $("animation").value);
+    if (!entry) return;
+    $("guide").href = entry.guide; $("sheet").href = entry.sheet; $("metadata").href = entry.metadata;
+    try {
+      const surface = document.createElement("canvas");
+      surface.id = "character"; surface.setAttribute("aria-label", "Animation preview");
+      const next = await SpriteSheetPlayer.load(surface, entry.metadata, { speed: Number($("speed").value) });
+      if (token !== request) { next.destroy(); return; }
+      $("character").replaceWith(surface);
+      player = next;
+      studioLoaded(entry);
+      $("primary-name").textContent = entry.name;
+      const d = player.data;
+      $("frame").max = d.frameCount - 1;
+      $("frame").value = 0;
+      $("frame-label").textContent = `1 / ${d.frameCount}`;
+      $("description").textContent = d.description;
+      $("info").textContent = `${d.frameCount} frames · ${d.cellWidth} × ${d.cellHeight} cells · ${Number((d.durationMs / 1000).toFixed(3))}s · ${d.loop ? "Loop" : "Play once"}`;
+      $("review").textContent = d.review?.artisticApproval ? "Visually approved export." : "Review export: check motion, contacts and character consistency at 1× and 0.5×.";
+      $("status").textContent = "Loaded. Playback follows the clip's loop or one-shot setting. The Markdown guide includes integration code.";
+      buttons.forEach(button => button.disabled = false);
+      player.play();
+      if ($("compare").checked) await selectComparison();
+    } catch (error) { if (token === request) $("status").textContent = error.message; }
+  }
+  $("play").onclick = () => { eachPlayer(p => p.play()); $("status").textContent = "Playing."; };
+  $("pause").onclick = () => { eachPlayer(p => p.pause()); if (player) { $("frame").value = player.currentFrame; $("frame-label").textContent = `${player.currentFrame + 1} / ${player.data.frameCount}`; } $("status").textContent = "Paused."; };
+  $("restart").onclick = () => { eachPlayer(p => p.restart()); $("status").textContent = "Playing from the start."; };
+  $("speed").onchange = () => eachPlayer(p => p.setSpeed(Number($("speed").value)));
+  $("compare").onchange = selectComparison;
+  $("comparison-animation").onchange = selectComparison;
+  $("frame").oninput = () => inspect(Number($("frame").value));
+  $("previous").onclick = () => player && inspect((player.currentFrame + player.data.frameCount - 1) % player.data.frameCount);
+  $("next").onclick = () => player && inspect((player.currentFrame + 1) % player.data.frameCount);
+  function updateFrame() {
+    if (player?.playing) {
+      $("frame").value = player.currentFrame;
+      $("frame-label").textContent = `${player.currentFrame + 1} / ${player.data.frameCount}`;
+    }
+    studioOverlay();
+    requestAnimationFrame(updateFrame);
+  }
+  requestAnimationFrame(updateFrame);
+  let studioEntry, studioEffect, overlay, overlayKey='';
+  function studioLoaded(entry) {
+    studioEntry=entry;studioEffect=player.data.breathEffect;
+    if(!$("studio-breath").checked)player.data.breathEffect={enabled:false};
+    player.loop=$("studio-repeat").checked||player.data.loop;
+    const url=new URL(location.href);url.searchParams.set('animation',entry.id);history.replaceState(null,'',url);
+    $("frame-thumbnails").replaceChildren();
+    const d=player.data;
+    d.frameDurationsMs.forEach((ms,i)=>{
+      const b=document.createElement('button');b.className='frame-thumb';b.type='button';b.setAttribute('aria-label',`Inspect frame ${i+1}`);
+      const cell=d.frameMap?.[i]??i;const c=document.createElement('canvas');c.width=80;c.height=100;c.getContext('2d').drawImage(player.image,cell%d.columns*d.cellWidth,Math.floor(cell/d.columns)*d.cellHeight,d.cellWidth,d.cellHeight,0,0,80,100);
+      const label=document.createElement('span');label.textContent=`${String(i+1).padStart(2,'0')} · ${Number(ms.toFixed(1))}ms`;b.append(c,label);b.onclick=()=>inspect(i);$("frame-thumbnails").append(b);
+    });
+    $("timeline-summary").textContent=`${d.atlasFrameCount??d.frameCount} stored poses / ${d.frameCount} exposures · ${(d.durationMs/1000).toFixed(2)}s · ${d.loop?'Game loop':'Game one-shot'}`;
+    overlay?.remove();overlay=document.createElement('canvas');overlay.width=d.cellWidth;overlay.height=d.cellHeight;overlay.className='inspection-overlay';overlay.setAttribute('aria-hidden','true');$("character").parentElement.append(overlay);overlayKey='';
+  }
+  function studioOverlay(){
+    if(!player||!overlay)return;
+    const key=[player.currentFrame,player.playing,$('onion').checked,$('guides').checked,$('studio-zoom').value].join(':');if(key===overlayKey)return;overlayKey=key;
+    const d=player.data,w=d.cellWidth,h=d.cellHeight,ctx=overlay.getContext('2d');ctx.clearRect(0,0,w,h);
+    if($('onion').checked&&!player.playing){
+      for(const [offset,alpha] of [[-1,.22],[1,.15]]){
+        let i=player.currentFrame+offset;if(player.loop)i=(i+d.frameCount)%d.frameCount;if(i<0||i>=d.frameCount)continue;
+        const cell=d.frameMap?.[i]??i;ctx.globalAlpha=alpha;ctx.drawImage(player.image,cell%d.columns*w,Math.floor(cell/d.columns)*h,w,h,0,0,w,h);
+      }ctx.globalAlpha=1;
+    }
+    if($('guides').checked){ctx.strokeStyle='#ff8533';ctx.lineWidth=1;ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(0,d.root[1]+.5);ctx.lineTo(w,d.root[1]+.5);ctx.moveTo(d.root[0]+.5,0);ctx.lineTo(d.root[0]+.5,h);ctx.stroke();ctx.setLineDash([]);ctx.beginPath();ctx.arc(...d.root,5,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffac70';ctx.font='11px sans-serif';ctx.fillText(`Root ${d.root.join(', ')}`,d.root[0]+9,d.root[1]-9);}
+    for(const [i,b] of [...$('frame-thumbnails').children].entries())b.classList.toggle('current',i===player.currentFrame);
+    const scale=$('studio-zoom').value;for(const c of [$('character'),overlay,$('comparison')])if(c)c.style.transform=`scale(${scale})`;
+  }
+  $('studio-background').onchange=()=>{$('stage').dataset.background=$('studio-background').value;};
+  for(const id of ['onion','guides','studio-zoom'])$(id).onchange=studioOverlay;
+  $('studio-repeat').onchange=()=>{if(player)player.loop=$('studio-repeat').checked||player.data.loop;};
+  $('studio-breath').onchange=()=>{if(!player)return;player.data.breathEffect=$('studio-breath').checked?studioEffect:{enabled:false};const i=player.currentFrame;player.currentFrame=-1;player.draw(i);};
+  $('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('stage').requestFullscreen();}catch(e){$('status').textContent=e.message;}};
+  $('frame-png').onclick=()=>{if(!player)return;$('character').toBlob(blob=>{if(!blob)return;const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=`${studioEntry.id}-frame-${player.currentFrame+1}.png`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);});};
+  $('copy-code').onclick=async()=>{if(!studioEntry)return;const code=`import { SpriteSheetPlayer } from './animation-library/player.js';\nconst player = await SpriteSheetPlayer.load(canvas, './animation-library/${studioEntry.metadata}');\nplayer.play();`;
+    try{await navigator.clipboard.writeText(code);$('status').textContent='Integration code copied. Adjust the asset paths for your game.';}catch{$('status').textContent='Clipboard unavailable. Open the animation guide for the same integration example.';}};
+  document.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(document.activeElement.tagName)||e.ctrlKey||e.metaKey||e.altKey)return;
+    if(e.code==='Space'){e.preventDefault();if(player?.playing)$('pause').click();else $('play').click();}
+    else if(e.key==='ArrowLeft'){e.preventDefault();$('previous').click();}else if(e.key==='ArrowRight'){e.preventDefault();$('next').click();}
+    else if(e.key.toLowerCase()==='r')$('restart').click();else if(['o','g'].includes(e.key.toLowerCase())){const c=$(e.key.toLowerCase()==='o'?'onion':'guides');c.checked=!c.checked;studioOverlay();}
+  });
+  $("animation").onchange = select;
+  try {
+    const response = await fetch("./manifest.json", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Library index: HTTP ${response.status}`);
+    const index = await response.json(); entries = index.animations;
+    for (const entry of entries) {
+      const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; $("animation").append(option);
+      $("comparison-animation").append(option.cloneNode(true));
+    }
+    const requested = new URLSearchParams(location.search).get("animation");
+    if (entries.some(entry => entry.id === requested)) $("animation").value = requested;
+    const compared = new URLSearchParams(location.search).get("compare");
+    if (entries.some(entry => entry.id === compared)) {
+      $("compare").checked = true;
+      $("comparison-animation").value = compared;
+    }
+    await select();
+  } catch (error) { $("status").textContent = error.message; }
+</script>
+</html>
